@@ -189,14 +189,20 @@ void loop() {
     printDataStream(esp32I2C, ESP32_MUX_CH, Pres1, Temp1, Humi1, Pres2, Temp2, Humi2, Pres3, Temp3, Humi3, v1, v2, mass, Amp);
     
     // 3. Log values onto Local micro-SD Card (SPI interface, MUX channel safe)
-    File Data = SD.open("datalog.txt", FILE_WRITE);
+    // switch mux to RTC, get date: for filename
+    pca9548a_select(7);
+    String date = RTC.getDateString();
+    //fuck you with stupid string formats
+    String dateFileName = date.substring(6,10) + date.substring(3,5) + date.substring(0,2) + ".txt";
+    Serial.println(dateFileName);
+    File Data = SD.open(dateFileName, FILE_WRITE);
     if (Data) {
       printDataStream(Data, 7, Pres1, Temp1, Humi1, Pres2, Temp2, Humi2, Pres3, Temp3, Humi3, v1, v2, mass, Amp);
       Data.close();
       digitalWrite(LedPinGreen, HIGH);
       digitalWrite(LedPinRed, LOW);
     } else {  
-      Serial.println(F("error opening datalog.txt")); 
+      Serial.println("error opening "+ dateFileName); 
       digitalWrite(LedPinRed, HIGH);
       digitalWrite(LedPinGreen, LOW);
     }
