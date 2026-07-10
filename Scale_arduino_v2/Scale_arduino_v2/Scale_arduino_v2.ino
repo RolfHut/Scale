@@ -79,6 +79,16 @@ const uint8_t clockPinHx711 = 6;
 const uint8_t chipSelect = 10;
 const uint8_t ACPin = A0;      
 
+float Amp = 1.0;
+float ARalpha = 0.995;
+
+long previousACMeasurementTime = 0;
+const long ACMeasurementTime = 10;
+
+long previousGetMinuteseasurementTime = 0;
+const long getMinuteseasurementTime = 10000;
+ 
+
 #define ACTectionRange 20    
 #define VREF 5.0
 #define sensor_1_address 0x76
@@ -144,81 +154,90 @@ void printDataStream(Print &output, uint8_t targetMuxChannel, float p1, float t1
 }
 
 void loop() {
-  pca9548a_select(7);
-  uint8_t minutes = RTC.getMinutes(); 
-  Serial.println(T_measure);
-  
-  if (minutes >= T_measure) { 
-    float Amp = readACCurrentValue();
-    // float Amp = 1.45;
-    
-    // Read from BME channel 0
-    pca9548a_select(0);
-    float Temp1 = bme.readTemperature();
-    float Humi1 = bme.readHumidity();
-    float Pres1 = bme.readPressure();
-    
-    // Read from BME channel 1
-    pca9548a_select(1);
-    float Temp2 = bme.readTemperature();
-    float Humi2 = bme.readHumidity();
-    float Pres2 = bme.readPressure();
 
-    // Read from BME channel 2
-    pca9548a_select(2);
-    float Temp3 = bme.readTemperature();
-    float Humi3 = bme.readHumidity();
-    float Pres3 = bme.readPressure();
-    
-    float mass = scale.read_average(10); 
-    
-    // Read from FS3000 channel 3
-    pca9548a_select(3);
-    float v1 = fs.readMetersPerSecond();
-    
-    // Read from FS3000 channel 4
-    pca9548a_select(4);
-    float v2 = fs.readMetersPerSecond();
-
-    // 1. Print locally to Hardware Serial Monitor (MUX destination doesn't matter for Serial)
-    Serial.print(F("Sending packet: "));
-    printDataStream(Serial, 7, Pres1, Temp1, Humi1, Pres2, Temp2, Humi2, Pres3, Temp3, Humi3, v1, v2, mass, Amp);
-    
-    // 2. Transmit to ESP32 over I2C in optimized 30-byte segments
-    // Enforces strict redirection to your ESP32's actual MUX branch
-    printDataStream(esp32I2C, ESP32_MUX_CH, Pres1, Temp1, Humi1, Pres2, Temp2, Humi2, Pres3, Temp3, Humi3, v1, v2, mass, Amp);
-    
-    // 3. Log values onto Local micro-SD Card (SPI interface, MUX channel safe)
-    // switch mux to RTC, get date: for filename
-    pca9548a_select(7);
-    String date = RTC.getDateString();
-    //fuck you with stupid string formats
-    String dateFileName = date.substring(6,10) + date.substring(3,5) + date.substring(0,2) + ".txt";
-    Serial.println(dateFileName);
-    File Data = SD.open(dateFileName, FILE_WRITE);
-    if (Data) {
-      printDataStream(Data, 7, Pres1, Temp1, Humi1, Pres2, Temp2, Humi2, Pres3, Temp3, Humi3, v1, v2, mass, Amp);
-      Data.close();
-      digitalWrite(LedPinGreen, HIGH);
-      digitalWrite(LedPinRed, LOW);
-    } else {  
-      Serial.println("error opening "+ dateFileName); 
-      digitalWrite(LedPinRed, HIGH);
-      digitalWrite(LedPinGreen, LOW);
-    }
-    
-    T_measure += measure_interval;
-
-    if (T_measure >= 60){
-      T_measure = 0;
-      while(true){
-        pca9548a_select(7);
-        if(RTC.getMinutes() != 59) break;
-        delay(100);
-      }
-    }    
+  if ((millis() - previousACMeasurementTime) > ACMeasurementTime){
+    previousACMeasurementTime = millis();
+    Amp = (ARalpha * Amp) + (1.0 - ARalpha) * readACCurrentValue();
   }
-  delay(2000);
+
+  if ((millis() - previousGetMinuteseasurementTime) > getMinuteseasurementTime){
+    previousGetMinuteseasurementTime = millis();
+    pca9548a_select(7);
+    uint8_t minutes = RTC.getMinutes(); 
+    Serial.println(T_measure);
+  
+    if (minutes >= T_measure) { 
+      //float Amp = readACCurrentValue();
+      // float Amp = 1.45;
+      
+      // Read from BME channel 0
+      pca9548a_select(0);
+      float Temp1 = bme.readTemperature();
+      float Humi1 = bme.readHumidity();
+      float Pres1 = bme.readPressure();
+      
+      // Read from BME channel 1
+      pca9548a_select(1);
+      float Temp2 = bme.readTemperature();
+      float Humi2 = bme.readHumidity();
+      float Pres2 = bme.readPressure();
+
+      // Read from BME channel 2
+      pca9548a_select(2);
+      float Temp3 = bme.readTemperature();
+      float Humi3 = bme.readHumidity();
+      float Pres3 = bme.readPressure();
+      
+      float mass = scale.read_average(10); 
+      
+      // Read from FS3000 channel 3
+      pca9548a_select(3);
+      float v1 = fs.readMetersPerSecond();
+      
+      // Read from FS3000 channel 4
+      pca9548a_select(4);
+      float v2 = fs.readMetersPerSecond();
+
+      // 1. Print locally to Hardware Serial Monitor (MUX destination doesn't matter for Serial)
+      Serial.print(F("Sending packet: "));
+      printDataStream(Serial, 7, Pres1, Temp1, Humi1, Pres2, Temp2, Humi2, Pres3, Temp3, Humi3, v1, v2, mass, Amp);
+      
+      // 2. Transmit to ESP32 over I2C in optimized 30-byte segments
+      // Enforces strict redirection to your ESP32's actual MUX branch
+      printDataStream(esp32I2C, ESP32_MUX_CH, Pres1, Temp1, Humi1, Pres2, Temp2, Humi2, Pres3, Temp3, Humi3, v1, v2, mass, Amp);
+      
+      // 3. Log values onto Local micro-SD Card (SPI interface, MUX channel safe)
+      // switch mux to RTC, get date: for filename
+      pca9548a_select(7);
+      String date = RTC.getDateString();
+      //fuck you with stupid string formats
+      String dateFileName = date.substring(6,10) + date.substring(3,5) + date.substring(0,2) + ".txt";
+      Serial.println(dateFileName);
+      File Data = SD.open(dateFileName, FILE_WRITE);
+      if (Data) {
+        printDataStream(Data, 7, Pres1, Temp1, Humi1, Pres2, Temp2, Humi2, Pres3, Temp3, Humi3, v1, v2, mass, Amp);
+        Data.close();
+        digitalWrite(LedPinGreen, HIGH);
+        digitalWrite(LedPinRed, LOW);
+      } else {  
+        Serial.println("error opening "+ dateFileName); 
+        digitalWrite(LedPinRed, HIGH);
+        digitalWrite(LedPinGreen, LOW);
+      }
+      
+      T_measure += measure_interval;
+
+      if (T_measure >= 60){
+        T_measure = 0;
+        while(true){
+          pca9548a_select(7);
+          if(RTC.getMinutes() != 59) break;
+          delay(100);
+        }
+      }    
+    }
+  }
+  //delay(2000);
 }
 
 float readACCurrentValue() {
